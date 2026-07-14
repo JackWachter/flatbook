@@ -1,0 +1,26 @@
+cmake_minimum_required(VERSION 3.20)
+project(flatbook)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Debug build flags
+set(CMAKE_CXX_FLAGS_DEBUG "-g -O0 -Wall -Wextra -fsanitize=address,undefined")
+
+# Download GoogleTest
+include(FetchContent)
+FetchContent_Declare(
+    googletest
+    GIT_REPOSITORY https://github.com/google/googletest.git
+    GIT_TAG        v1.17.0
+)
+FetchContent_MakeAvailable(googletest)
+
+# Testing
+enable_testing()
+add_executable(tests tests/test_orderbook.cpp)
+target_include_directories(tests PRIVATE src)
+target_link_libraries(tests PRIVATE GTest::gtest_main) # Link against GoogleTest
+
+include(GoogleTest)
+gtest_discover_tests(tests)
