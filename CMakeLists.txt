@@ -18,7 +18,11 @@ FetchContent_MakeAvailable(googletest)
 
 # Testing
 enable_testing()
-add_executable(tests tests/test_orderbook.cpp src/orderbook.cpp)
+add_executable(tests
+    tests/test_orderbook.cpp
+    tests/harness.cpp
+    src/orderbook.cpp
+)
 target_include_directories(tests PRIVATE src)
 target_link_libraries(tests PRIVATE GTest::gtest_main) # Link against GoogleTest
 
