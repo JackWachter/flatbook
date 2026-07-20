@@ -22,6 +22,7 @@ add_executable(tests
     tests/test_orderbook.cpp
     tests/harness.cpp
     src/orderbook.cpp
+    src/flatbook.cpp
 )
 target_include_directories(tests PRIVATE src)
 target_link_libraries(tests PRIVATE GTest::gtest_main) # Link against GoogleTest
