@@ -20,6 +20,7 @@ FetchContent_MakeAvailable(googletest)
 enable_testing()
 add_executable(tests
     tests/test_orderbook.cpp
+    tests/test_flatbook.cpp
     tests/harness.cpp
     src/orderbook.cpp
     src/flatbook.cpp

@@ -12,6 +12,11 @@ class FlatOrderBook {
     std::vector<Level> bids;
     std::vector<Level> asks;
     std::unordered_map<OrderId, Location> id_index;
+
+    bool in_window(Price price) const {
+        return price >= BASE && price < BASE + static_cast<Price>(WINDOW_SIZE);
+    }
+    
     public:
         FlatOrderBook() {
             bids.resize(WINDOW_SIZE);
