@@ -1,22 +1,40 @@
 #pragma once
-#include<vector>
-#include<cstdint>
-#include<list>
-#include<unordered_map>
+#include <vector>
+#include <cstdint>
+#include <list>
+#include <unordered_map>
+#include <map>
 #include "types.hpp"
 
-static constexpr Price BASE = 90;
-static constexpr size_t WINDOW_SIZE = 21;
+static constexpr size_t WINDOW_SIZE = 64;
+static constexpr size_t CHUNK = WINDOW_SIZE/4;
 
 class FlatOrderBook {
     std::vector<Level> bids;
     std::vector<Level> asks;
     std::unordered_map<OrderId, Location> id_index;
+    std::map<Price, Level> spillover_bids;
+    std::map<Price, Level> spillover_asks;
+
+    Price base = 90;
+    size_t head = 0;
 
     bool in_window(Price price) const {
-        return price >= BASE && price < BASE + static_cast<Price>(WINDOW_SIZE);
+        return price >= base && price < base + static_cast<Price>(WINDOW_SIZE);
     }
-    
+
+    bool chunk_below(Price price) const {
+        Price adjusted_price = price + static_cast<Price>(CHUNK);
+        return in_window(adjusted_price);
+    }
+
+    bool chunk_above(Price price) const {
+        Price adjusted_price = price - static_cast<Price>(CHUNK);
+        return in_window(adjusted_price);
+    }
+
+    void migrate_order(Level& from, std::list<Order>::iterator node, Level& to);
+
     public:
         FlatOrderBook() {
             bids.resize(WINDOW_SIZE);
@@ -27,4 +45,9 @@ class FlatOrderBook {
         int execute(OrderId order_id, Quantity quantity);
         Quote best_bid();
         Quote best_ask();
+        void slide_up();
+        void slide_down();
+        // Exposed for testing: lets tests observe window position and spillover occupancy
+        Price current_base() const { return base; }
+        size_t spillover_size() const { return spillover_bids.size() + spillover_asks.size(); }
 };

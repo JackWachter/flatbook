@@ -6,11 +6,13 @@
 int main() {
     int num_events = 10000;
     uint64_t seed = 17;
-    int price_min = 95, price_max = 105;
+    double center = 100.0;
+    int price_min = 90, price_max = 110;
     int qty_min = 1, qty_max = 100;
     int add_threshold = 60;
     int cancel_threshold = 95;
     int adds = 0, cancels = 0, executes = 0;
+    double drift_rate = 0.2;
 
     std::mt19937_64 rng(seed);
 
@@ -18,6 +20,8 @@ int main() {
     std::uniform_int_distribution<int> qty_dist(qty_min, qty_max);
     std::uniform_int_distribution<int> side_dist(0, 1);
     std::uniform_int_distribution<int> action_dist(0, 100);
+    std::uniform_real_distribution<double> drift_dist(-drift_rate, drift_rate * 3);
+    std::uniform_int_distribution<int> offset_dist(-5, 5);
 
     uint64_t id = 1;
     std::vector<Order> live;
@@ -26,8 +30,9 @@ int main() {
 
     for (int i = 0; i < num_events; i++) {
         int action = action_dist(rng);
+        center += drift_dist(rng);
         if (live.empty() or action <= add_threshold) {
-            int32_t price = price_dist(rng);
+            int32_t price = static_cast<int32_t>(center) + offset_dist(rng);
             uint32_t quantity = qty_dist(rng);
             int side = side_dist(rng);
             char side_char = (side == 0) ? 'B' : 'S';

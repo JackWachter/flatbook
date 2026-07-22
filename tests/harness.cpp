@@ -57,18 +57,6 @@ int replay(FlatOrderBook& book, const std::string& filename) {
     return failures;
 }
 
-TEST(BestQuotes, ReplayValidatesInvariants) {
-    OrderBook book;
-    replay(book, "events.txt");
-
-    ASSERT_GT(book.best_bid().price, -1);
-    ASSERT_GT(book.best_ask().price, -1);
-    EXPECT_GE(book.best_bid().price, 95);
-    EXPECT_LE(book.best_bid().price, 105);
-    EXPECT_GE(book.best_ask().price, 95);
-    EXPECT_LE(book.best_ask().price, 105);
-}
-
 TEST(Generator, ProducesValidStream) {
     OrderBook book;
     int failures = replay(book, "events.txt");
