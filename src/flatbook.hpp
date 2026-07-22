@@ -4,6 +4,7 @@
 #include <list>
 #include <unordered_map>
 #include <map>
+#include <bit>
 #include "types.hpp"
 
 static constexpr size_t WINDOW_SIZE = 64;
@@ -19,6 +20,9 @@ class FlatOrderBook {
     Price base = 90;
     size_t head = 0;
 
+    uint64_t bid_mask = 0;
+    uint64_t ask_mask = 0;
+
     bool in_window(Price price) const {
         return price >= base && price < base + static_cast<Price>(WINDOW_SIZE);
     }
@@ -31,6 +35,16 @@ class FlatOrderBook {
     bool chunk_above(Price price) const {
         Price adjusted_price = price - static_cast<Price>(CHUNK);
         return in_window(adjusted_price);
+    }
+
+    void set_occupied(Side side, size_t slot) {
+        uint64_t& mask = (side == Side::Buy) ? bid_mask : ask_mask;
+        mask |= (1ULL << slot);
+    }
+
+    void clear_occupied(Side side, size_t slot) {
+        uint64_t& mask = (side == Side::Buy) ? bid_mask : ask_mask;
+        mask &= ~(1ULL << slot);
     }
 
     void migrate_order(Level& from, std::list<Order>::iterator node, Level& to);

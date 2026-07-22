@@ -14,6 +14,7 @@ int FlatOrderBook::add(OrderId order_id, Side side, Price price, Quantity quanti
     if (in_window(price)) {
         size_t index = (head + static_cast<size_t>(price - base)) % WINDOW_SIZE;
         level_ptr = (side == Side::Buy) ? &bids[index] : &asks[index];
+        set_occupied(side, index);
     } else {
         level_ptr = (side == Side::Buy) ? &spillover_bids[price] : &spillover_asks[price];
     }
@@ -30,15 +31,12 @@ Quote FlatOrderBook::best_bid() {
     bool found = false;
     Quote best{-1, 0};
 
-    for (size_t offset = WINDOW_SIZE - 1; offset < WINDOW_SIZE; --offset) {
+    if (bid_mask != 0) {
+        uint64_t rotated = std::rotr(bid_mask, static_cast<int>(head));
+        size_t offset = 63 - static_cast<size_t>(std::countl_zero(rotated));
         size_t slot = (head + offset) % WINDOW_SIZE;
-        if (bids[slot].orders.empty()) {
-            continue;
-        }
-        Price price = base + static_cast<Price>(offset);
-        best = Quote{price, bids[slot].total_volume};
+        best = Quote{base + static_cast<Price>(offset), bids[slot].total_volume};
         found = true;
-        break;
     }
 
     if (!spillover_bids.empty()) {
@@ -54,15 +52,12 @@ Quote FlatOrderBook::best_ask() {
     bool found = false;
     Quote best{-1, 0};
 
-    for (size_t offset = 0; offset < WINDOW_SIZE; offset++) {
+    if (ask_mask != 0) {
+        uint64_t rotated = std::rotr(ask_mask, static_cast<int>(head));
+        size_t offset = static_cast<size_t>(std::countr_zero(rotated));
         size_t slot = (head + offset) % WINDOW_SIZE;
-        if (asks[slot].orders.empty()) {
-            continue;
-        }
-        Price price = base + static_cast<Price>(offset);
-        best = Quote{price, asks[slot].total_volume};
+        best = Quote{base + static_cast<Price>(offset), asks[slot].total_volume};
         found = true;
-        break;
     }
 
     if (!spillover_asks.empty()) {
@@ -82,8 +77,9 @@ int FlatOrderBook::cancel(OrderId order_id) {
 
     Location location = id_index[order_id];
     Level* level_ptr;
+    size_t index;
     if (in_window(location.price)) {
-        size_t index = (head + static_cast<size_t>(location.price - base)) % WINDOW_SIZE;
+        index = (head + static_cast<size_t>(location.price - base)) % WINDOW_SIZE;
         level_ptr = (location.side == Side::Buy) ? &bids[index] : &asks[index];
     } else {
         auto& book = (location.side == Side::Buy) ? spillover_bids : spillover_asks;
@@ -94,9 +90,13 @@ int FlatOrderBook::cancel(OrderId order_id) {
     level.orders.erase(location.node);
     level.total_volume -= volume;
     id_index.erase(order_id);
-    if (!in_window(location.price) and level.orders.empty()) {
-        auto& book = (location.side == Side::Buy) ? spillover_bids : spillover_asks;
-        book.erase(location.price);
+    if (level.orders.empty()) {
+        if (!in_window(location.price)) {
+            auto& book = (location.side == Side::Buy) ? spillover_bids : spillover_asks;
+            book.erase(location.price);
+        } else {
+            clear_occupied(location.side, index);
+        }
     }
     return 0;
 }
@@ -108,8 +108,9 @@ int FlatOrderBook::execute(OrderId order_id, Quantity quantity) {
 
     Location location = id_index[order_id];
     Level* level_ptr;
+    size_t index;
     if (in_window(location.price)) {
-        size_t index = (head + static_cast<size_t>(location.price - base)) % WINDOW_SIZE;
+        index = (head + static_cast<size_t>(location.price - base)) % WINDOW_SIZE;
         level_ptr = (location.side == Side::Buy) ? &bids[index] : &asks[index];
     } else {
         auto& book = (location.side == Side::Buy) ? spillover_bids : spillover_asks;
@@ -126,9 +127,13 @@ int FlatOrderBook::execute(OrderId order_id, Quantity quantity) {
         level.total_volume -= volume;
         id_index.erase(order_id);
         level.orders.erase(location.node);
-        if (!in_window(location.price) and level.orders.empty()) {
-            auto& book = (location.side == Side::Buy) ? spillover_bids : spillover_asks;
-            book.erase(location.price);
+        if (level.orders.empty()) {
+            if (!in_window(location.price)) {
+                auto& book = (location.side == Side::Buy) ? spillover_bids : spillover_asks;
+                book.erase(location.price);
+            } else {
+                clear_occupied(location.side, index);
+            }
         }
         return 0;
     } else {
@@ -138,15 +143,18 @@ int FlatOrderBook::execute(OrderId order_id, Quantity quantity) {
 
 void FlatOrderBook::slide_up() {
     for (size_t offset = 0; offset < CHUNK; offset++) {
-        Level& bid_level = bids[(head + offset) % WINDOW_SIZE];
-        Level& ask_level = asks[(head + offset) % WINDOW_SIZE];
+        size_t index = (head + offset) % WINDOW_SIZE;
+        Level& bid_level = bids[index];
+        Level& ask_level = asks[index];
 
         while (!bid_level.orders.empty()) {
             migrate_order(bid_level, bid_level.orders.begin(), spillover_bids[base + static_cast<Price>(offset)]);
         }
+        clear_occupied(Side::Buy, index);
         while (!ask_level.orders.empty()) {
             migrate_order(ask_level, ask_level.orders.begin(), spillover_asks[base + static_cast<Price>(offset)]);
         }
+        clear_occupied(Side::Sell, index);
 
         auto bid_it = spillover_bids.find(base + static_cast<Price>(WINDOW_SIZE + offset));
         if (bid_it != spillover_bids.end()) {
@@ -155,6 +163,7 @@ void FlatOrderBook::slide_up() {
                 migrate_order(spill_bid, spill_bid.orders.begin(), bid_level);
             }
             spillover_bids.erase(bid_it);
+            set_occupied(Side::Buy, index);
         }
 
         auto ask_it = spillover_asks.find(base + static_cast<Price>(WINDOW_SIZE + offset));
@@ -164,6 +173,7 @@ void FlatOrderBook::slide_up() {
                 migrate_order(spill_ask, spill_ask.orders.begin(), ask_level);
             }
             spillover_asks.erase(ask_it);
+            set_occupied(Side::Sell, index);
         }
     }
 
@@ -173,15 +183,18 @@ void FlatOrderBook::slide_up() {
 
 void FlatOrderBook::slide_down() {
     for (size_t offset = 0; offset < CHUNK; offset++) {
-        Level& bid_level = bids[(head + WINDOW_SIZE - 1 - offset) % WINDOW_SIZE];
-        Level& ask_level = asks[(head + WINDOW_SIZE - 1 - offset) % WINDOW_SIZE];
+        size_t index = (head + WINDOW_SIZE - 1 - offset) % WINDOW_SIZE;
+        Level& bid_level = bids[index];
+        Level& ask_level = asks[index];
 
         while (!bid_level.orders.empty()) {
             migrate_order(bid_level, bid_level.orders.begin(), spillover_bids[base + static_cast<Price>(WINDOW_SIZE - 1 - offset)]);
         }
+        clear_occupied(Side::Buy, index);
         while (!ask_level.orders.empty()) {
             migrate_order(ask_level, ask_level.orders.begin(), spillover_asks[base + static_cast<Price>(WINDOW_SIZE - 1 - offset)]);
         }
+        clear_occupied(Side::Sell, index);
 
         auto bid_it = spillover_bids.find(base - static_cast<Price>(1 + offset));
         if (bid_it != spillover_bids.end()) {
@@ -190,6 +203,7 @@ void FlatOrderBook::slide_down() {
                 migrate_order(spill_bid, spill_bid.orders.begin(), bid_level);
             }
             spillover_bids.erase(bid_it);
+            set_occupied(Side::Buy, index);
         }
 
         auto ask_it = spillover_asks.find(base - static_cast<Price>(1 + offset));
@@ -199,6 +213,7 @@ void FlatOrderBook::slide_down() {
                 migrate_order(spill_ask, spill_ask.orders.begin(), ask_level);
             }
             spillover_asks.erase(ask_it);
+            set_occupied(Side::Sell, index);
         }
     }
 

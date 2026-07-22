@@ -183,3 +183,31 @@ TEST(FlatSlide, BaseMovesByChunk) {
     book.slide_down();
     EXPECT_EQ(book.current_base(), start);
 }
+
+TEST(FlatSlide, TouchCorrectWithNonZeroHead) {
+    FlatOrderBook book;
+    Price start = book.current_base();
+
+    book.add(1, Side::Buy, 160, 50);
+    EXPECT_EQ(book.current_base(), start + static_cast<Price>(CHUNK));
+
+    book.add(2, Side::Buy, 110, 10);
+    book.add(3, Side::Buy, 165, 20);
+    book.add(4, Side::Sell, 108, 30);
+    book.add(5, Side::Sell, 168, 40);
+
+    EXPECT_EQ(book.best_bid().price, 165);
+    EXPECT_EQ(book.best_bid().quantity, 20);
+    EXPECT_EQ(book.best_ask().price, 108);
+    EXPECT_EQ(book.best_ask().quantity, 30);
+}
+
+TEST(FlatSlide, TouchCorrectAfterSlideDown) {
+    FlatOrderBook book;
+    book.add(1, Side::Buy, 80, 50);
+    book.add(2, Side::Buy, 100, 10);
+    book.add(3, Side::Buy, 76,  20);
+
+    EXPECT_EQ(book.best_bid().price, 100);
+    EXPECT_EQ(book.best_bid().quantity, 10);
+}
