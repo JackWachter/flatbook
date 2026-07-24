@@ -20,8 +20,8 @@ int main() {
     std::uniform_int_distribution<int> qty_dist(qty_min, qty_max);
     std::uniform_int_distribution<int> side_dist(0, 1);
     std::uniform_int_distribution<int> action_dist(0, 100);
-    std::uniform_real_distribution<double> drift_dist(-drift_rate, drift_rate * 3);
-    std::uniform_int_distribution<int> offset_dist(-5, 5);
+    std::uniform_real_distribution<double> drift_dist(-drift_rate, drift_rate);
+    std::uniform_int_distribution<int> offset_dist(-25, 25);
 
     uint64_t id = 1;
     std::vector<Order> live;

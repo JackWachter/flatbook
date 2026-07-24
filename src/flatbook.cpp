@@ -1,6 +1,10 @@
 #include "flatbook.hpp"
 
 int FlatOrderBook::add(OrderId order_id, Side side, Price price, Quantity quantity) {
+    if (!initialized) {
+        base = price - static_cast<Price>(WINDOW_SIZE / 2);
+        initialized = true;
+    }
     Order order {order_id, quantity};
     Level* level_ptr;
     if (!in_window(price)) {
@@ -77,7 +81,7 @@ int FlatOrderBook::cancel(OrderId order_id) {
 
     Location location = id_index[order_id];
     Level* level_ptr;
-    size_t index;
+    size_t index= 0;
     if (in_window(location.price)) {
         index = (head + static_cast<size_t>(location.price - base)) % WINDOW_SIZE;
         level_ptr = (location.side == Side::Buy) ? &bids[index] : &asks[index];
@@ -108,7 +112,7 @@ int FlatOrderBook::execute(OrderId order_id, Quantity quantity) {
 
     Location location = id_index[order_id];
     Level* level_ptr;
-    size_t index;
+    size_t index= 0;
     if (in_window(location.price)) {
         index = (head + static_cast<size_t>(location.price - base)) % WINDOW_SIZE;
         level_ptr = (location.side == Side::Buy) ? &bids[index] : &asks[index];
@@ -179,6 +183,7 @@ void FlatOrderBook::slide_up() {
 
     base += CHUNK;
     head = (head + CHUNK) % WINDOW_SIZE;
+    slides_up++;
 }
 
 void FlatOrderBook::slide_down() {
@@ -219,6 +224,7 @@ void FlatOrderBook::slide_down() {
 
     base -= CHUNK;
     head = (head + WINDOW_SIZE - CHUNK) % WINDOW_SIZE;
+    slides_down++;
 }
 
 void FlatOrderBook::migrate_order(Level& from, std::list<Order>::iterator node, Level& to) {
@@ -229,4 +235,5 @@ void FlatOrderBook::migrate_order(Level& from, std::list<Order>::iterator node, 
     auto new_node = std::prev(to.orders.end());
     from.orders.erase(node);
     id_index[order.order_id].node = new_node;
+    orders_migrated++;
 }

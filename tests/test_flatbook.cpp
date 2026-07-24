@@ -110,6 +110,7 @@ TEST(FlatSlide, BoundaryPriceLandsInArrayNotSpillover) {
 
 TEST(FlatSlide, JustBeyondBoundaryGoesToSpillover) {
     FlatOrderBook book;
+    book.add(99, Side::Buy, 100, 1);    
     Price before = book.current_base();
     book.add(1, Side::Buy, 170, 50);
     EXPECT_EQ(book.current_base(), before);
@@ -129,6 +130,7 @@ TEST(FlatSlide, EvictedOrderStillFindableAfterTriggeredSlide) {
 
 TEST(FlatSlide, SlideDownEvictsTopOfWindow) {
     FlatOrderBook book;
+    book.add(99, Side::Buy, 122, 40);
     book.add(1, Side::Buy, 150, 40);
     EXPECT_EQ(book.spillover_size(), 0);
     book.slide_down();
@@ -159,6 +161,8 @@ TEST(FlatSlide, BothSidesMigrateTogether) {
     book.add(1, Side::Buy,  95, 10);
     book.add(2, Side::Sell, 95, 20);
     book.slide_up();
+    book.slide_up();
+    book.slide_up();
     EXPECT_EQ(book.spillover_size(), 2);
     EXPECT_EQ(book.cancel(1), 0);
     EXPECT_EQ(book.cancel(2), 0);
@@ -186,6 +190,7 @@ TEST(FlatSlide, BaseMovesByChunk) {
 
 TEST(FlatSlide, TouchCorrectWithNonZeroHead) {
     FlatOrderBook book;
+    book.add(99, Side::Buy, 120, 1); 
     Price start = book.current_base();
 
     book.add(1, Side::Buy, 160, 50);

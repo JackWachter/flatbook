@@ -6,6 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Debug build flags
 set(CMAKE_CXX_FLAGS_DEBUG "-g -O0 -Wall -Wextra -fsanitize=address,undefined")
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG -Wall -Wextra")
 
 # Download GoogleTest
 include(FetchContent)
@@ -16,6 +17,15 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(googletest)
 
+set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+set(BENCHMARK_ENABLE_GTEST_TESTS OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    googlebenchmark
+    GIT_REPOSITORY https://github.com/google/benchmark.git
+    GIT_TAG        v1.9.5
+)
+FetchContent_MakeAvailable(googlebenchmark)
+
 # Testing
 enable_testing()
 add_executable(tests
@@ -24,9 +34,19 @@ add_executable(tests
     tests/harness.cpp
     src/orderbook.cpp
     src/flatbook.cpp
+    src/events.cpp
 )
 target_include_directories(tests PRIVATE src)
-target_link_libraries(tests PRIVATE GTest::gtest_main) # Link against GoogleTest
+target_link_libraries(tests PRIVATE GTest::gtest_main)
+
+add_executable(benchmarks
+    benchmarks/bench_books.cpp
+    src/orderbook.cpp
+    src/flatbook.cpp
+    src/events.cpp
+)
+target_include_directories(benchmarks PRIVATE src)
+target_link_libraries(benchmarks PRIVATE benchmark::benchmark)
 
 include(GoogleTest)
 gtest_discover_tests(tests)

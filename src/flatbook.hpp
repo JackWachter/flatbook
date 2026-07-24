@@ -8,7 +8,7 @@
 #include "types.hpp"
 
 static constexpr size_t WINDOW_SIZE = 64;
-static constexpr size_t CHUNK = WINDOW_SIZE/4;
+static constexpr size_t CHUNK = 4;
 
 class FlatOrderBook {
     std::vector<Level> bids;
@@ -17,11 +17,16 @@ class FlatOrderBook {
     std::map<Price, Level> spillover_bids;
     std::map<Price, Level> spillover_asks;
 
-    Price base = 90;
+    Price base = 0;
     size_t head = 0;
+    bool initialized = false;
 
     uint64_t bid_mask = 0;
     uint64_t ask_mask = 0;
+
+    size_t slides_up = 0;
+    size_t slides_down = 0;
+    size_t orders_migrated = 0;
 
     bool in_window(Price price) const {
         return price >= base && price < base + static_cast<Price>(WINDOW_SIZE);
@@ -54,6 +59,7 @@ class FlatOrderBook {
             bids.resize(WINDOW_SIZE);
             asks.resize(WINDOW_SIZE);
         }
+
         int add(OrderId order_id, Side side, Price price, Quantity quantity);
         int cancel(OrderId order_id);
         int execute(OrderId order_id, Quantity quantity);
@@ -61,7 +67,12 @@ class FlatOrderBook {
         Quote best_ask();
         void slide_up();
         void slide_down();
+
         // Exposed for testing: lets tests observe window position and spillover occupancy
         Price current_base() const { return base; }
         size_t spillover_size() const { return spillover_bids.size() + spillover_asks.size(); }
+
+        size_t slide_up_count() const { return slides_up; }
+        size_t slide_down_count() const { return slides_down; }
+        size_t migration_count() const { return orders_migrated; }
 };
