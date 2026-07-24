@@ -83,7 +83,6 @@ class FlatOrderBook {
         FlatOrderBook() {
             bids.resize(WINDOW_SIZE);
             asks.resize(WINDOW_SIZE);
-            pool.reserve(100000);
         }
 
         int add(OrderId order_id, Side side, Price price, Quantity quantity);

@@ -48,5 +48,12 @@ add_executable(benchmarks
 target_include_directories(benchmarks PRIVATE src)
 target_link_libraries(benchmarks PRIVATE benchmark::benchmark)
 
+add_executable(latency
+    benchmarks/latency.cpp
+    src/flatbook.cpp
+    src/events.cpp
+)
+target_include_directories(latency PRIVATE src)
+
 include(GoogleTest)
 gtest_discover_tests(tests)
