@@ -1,7 +1,6 @@
 #pragma once
 #include <vector>
 #include <cstdint>
-#include <list>
 #include <unordered_map>
 #include <map>
 #include <bit>
@@ -9,17 +8,39 @@
 
 static constexpr size_t WINDOW_SIZE = 64;
 static constexpr size_t CHUNK = 4;
+static constexpr uint32_t NIL = UINT32_MAX;
+
+struct OrderNode {
+    OrderId id = 0;
+    Quantity quantity = 0;
+    uint32_t next = NIL;
+    uint32_t prev = NIL;
+};
+
+struct PooledLevel {
+    uint32_t head = NIL;
+    uint32_t tail = NIL;
+    Quantity total_volume = 0;
+};
+
+struct PooledLocation {
+    Side side;
+    Price price;
+    uint32_t node_idx;
+};
 
 class FlatOrderBook {
-    std::vector<Level> bids;
-    std::vector<Level> asks;
-    std::unordered_map<OrderId, Location> id_index;
-    std::map<Price, Level> spillover_bids;
-    std::map<Price, Level> spillover_asks;
+    std::vector<PooledLevel> bids;
+    std::vector<PooledLevel> asks;
+    std::unordered_map<OrderId, PooledLocation> id_index;
+    std::map<Price, PooledLevel> spillover_bids;
+    std::map<Price, PooledLevel> spillover_asks;
+    std::vector<OrderNode> pool;
 
     Price base = 0;
     size_t head = 0;
     bool initialized = false;
+    uint32_t free_head = NIL;
 
     uint64_t bid_mask = 0;
     uint64_t ask_mask = 0;
@@ -52,12 +73,17 @@ class FlatOrderBook {
         mask &= ~(1ULL << slot);
     }
 
-    void migrate_order(Level& from, std::list<Order>::iterator node, Level& to);
+    void migrate_order(PooledLevel& from, uint32_t node, PooledLevel& to);
+    uint32_t alloc_node(OrderId id, Quantity qty);
+    void free_node(uint32_t idx);
+    void link_back(PooledLevel& level, uint32_t idx);
+    void unlink(PooledLevel& level, uint32_t idx);
 
     public:
         FlatOrderBook() {
             bids.resize(WINDOW_SIZE);
             asks.resize(WINDOW_SIZE);
+            pool.reserve(100000);
         }
 
         int add(OrderId order_id, Side side, Price price, Quantity quantity);

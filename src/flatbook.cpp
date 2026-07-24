@@ -5,8 +5,6 @@ int FlatOrderBook::add(OrderId order_id, Side side, Price price, Quantity quanti
         base = price - static_cast<Price>(WINDOW_SIZE / 2);
         initialized = true;
     }
-    Order order {order_id, quantity};
-    Level* level_ptr;
     if (!in_window(price)) {
         if (chunk_above(price)) {
             slide_up();
@@ -15,6 +13,9 @@ int FlatOrderBook::add(OrderId order_id, Side side, Price price, Quantity quanti
         }
     }
 
+    uint32_t idx = alloc_node(order_id, quantity);
+    PooledLevel* level_ptr;
+
     if (in_window(price)) {
         size_t index = (head + static_cast<size_t>(price - base)) % WINDOW_SIZE;
         level_ptr = (side == Side::Buy) ? &bids[index] : &asks[index];
@@ -22,12 +23,10 @@ int FlatOrderBook::add(OrderId order_id, Side side, Price price, Quantity quanti
     } else {
         level_ptr = (side == Side::Buy) ? &spillover_bids[price] : &spillover_asks[price];
     }
-    Level& level = *level_ptr;
-    level.orders.push_back(order);
-    auto node = std::prev(level.orders.end());
+    PooledLevel& level = *level_ptr;
+    link_back(level, idx);
     level.total_volume += quantity;
-    Location location {price, node, side};
-    id_index[order_id] = location;
+    id_index[order_id] = PooledLocation{side, price, idx};
     return 0;
 }
 
@@ -80,8 +79,8 @@ int FlatOrderBook::cancel(OrderId order_id) {
         return 1;
     }
 
-    Location location = it->second;
-    Level* level_ptr;
+    PooledLocation location = it->second;
+    PooledLevel* level_ptr;
     size_t index= 0;
     if (in_window(location.price)) {
         index = (head + static_cast<size_t>(location.price - base)) % WINDOW_SIZE;
@@ -90,12 +89,13 @@ int FlatOrderBook::cancel(OrderId order_id) {
         auto& book = (location.side == Side::Buy) ? spillover_bids : spillover_asks;
         level_ptr = &book[location.price];
     }
-    Level& level = *level_ptr;  
-    Quantity volume = location.node->quantity;
-    level.orders.erase(location.node);
+    PooledLevel& level = *level_ptr;  
+    Quantity volume = pool[location.node_idx].quantity;
+    unlink(level, location.node_idx);
+    free_node(location.node_idx);
     level.total_volume -= volume;
     id_index.erase(it);
-    if (level.orders.empty()) {
+    if (level.head == NIL) {
         if (!in_window(location.price)) {
             auto& book = (location.side == Side::Buy) ? spillover_bids : spillover_asks;
             book.erase(location.price);
@@ -112,8 +112,8 @@ int FlatOrderBook::execute(OrderId order_id, Quantity quantity) {
         return 1;
     }
 
-    Location location = it->second;
-    Level* level_ptr;
+    PooledLocation location = it->second;
+    PooledLevel* level_ptr;
     size_t index= 0;
     if (in_window(location.price)) {
         index = (head + static_cast<size_t>(location.price - base)) % WINDOW_SIZE;
@@ -122,18 +122,19 @@ int FlatOrderBook::execute(OrderId order_id, Quantity quantity) {
         auto& book = (location.side == Side::Buy) ? spillover_bids : spillover_asks;
         level_ptr = &book[location.price];
     }
-    Level& level = *level_ptr; 
-    Quantity volume = location.node->quantity;
+    PooledLevel& level = *level_ptr; 
+    Quantity volume = pool[location.node_idx].quantity;
 
     if (volume > quantity) {
         level.total_volume -= quantity;
-        location.node->quantity -= quantity;
+        pool[location.node_idx].quantity -= quantity;
         return 0;
     } else if (volume == quantity) {
-        level.total_volume -= volume;
+        level.total_volume -= quantity;
         id_index.erase(it);
-        level.orders.erase(location.node);
-        if (level.orders.empty()) {
+        unlink(level, location.node_idx);
+        free_node(location.node_idx);
+        if (level.head == NIL) {
             if (!in_window(location.price)) {
                 auto& book = (location.side == Side::Buy) ? spillover_bids : spillover_asks;
                 book.erase(location.price);
@@ -150,23 +151,35 @@ int FlatOrderBook::execute(OrderId order_id, Quantity quantity) {
 void FlatOrderBook::slide_up() {
     for (size_t offset = 0; offset < CHUNK; offset++) {
         size_t index = (head + offset) % WINDOW_SIZE;
-        Level& bid_level = bids[index];
-        Level& ask_level = asks[index];
+        PooledLevel& bid_level = bids[index];
+        PooledLevel& ask_level = asks[index];
 
-        while (!bid_level.orders.empty()) {
-            migrate_order(bid_level, bid_level.orders.begin(), spillover_bids[base + static_cast<Price>(offset)]);
+        Price out_price = base + static_cast<Price>(offset);
+        Price in_price  = base + static_cast<Price>(WINDOW_SIZE + offset);
+        uint32_t idx = bid_level.head;
+
+        while (idx != NIL) {
+            uint32_t next = pool[idx].next;
+            migrate_order(bid_level, idx, spillover_bids[out_price]);
+            idx = next;
         }
         clear_occupied(Side::Buy, index);
-        while (!ask_level.orders.empty()) {
-            migrate_order(ask_level, ask_level.orders.begin(), spillover_asks[base + static_cast<Price>(offset)]);
+
+        idx = ask_level.head;
+        while (idx != NIL) {
+            uint32_t next = pool[idx].next;
+            migrate_order(ask_level, idx, spillover_asks[out_price]);
+            idx = next;
         }
         clear_occupied(Side::Sell, index);
 
-        auto bid_it = spillover_bids.find(base + static_cast<Price>(WINDOW_SIZE + offset));
+        auto bid_it = spillover_bids.find(in_price);
         if (bid_it != spillover_bids.end()) {
-            Level& spill_bid = bid_it->second;
-            while (!spill_bid.orders.empty()) {
-                migrate_order(spill_bid, spill_bid.orders.begin(), bid_level);
+            idx = bid_it->second.head;
+            while (idx != NIL) {
+                uint32_t next = pool[idx].next;
+                migrate_order(bid_it->second, idx, bid_level);
+                idx = next;
             }
             spillover_bids.erase(bid_it);
             set_occupied(Side::Buy, index);
@@ -174,9 +187,11 @@ void FlatOrderBook::slide_up() {
 
         auto ask_it = spillover_asks.find(base + static_cast<Price>(WINDOW_SIZE + offset));
         if (ask_it != spillover_asks.end()) {
-            Level& spill_ask = ask_it->second;
-            while (!spill_ask.orders.empty()) {
-                migrate_order(spill_ask, spill_ask.orders.begin(), ask_level);
+            idx = ask_it->second.head;
+            while (idx != NIL) {
+                uint32_t next = pool[idx].next;
+                migrate_order(ask_it->second, idx, ask_level);
+                idx = next;
             }
             spillover_asks.erase(ask_it);
             set_occupied(Side::Sell, index);
@@ -191,33 +206,47 @@ void FlatOrderBook::slide_up() {
 void FlatOrderBook::slide_down() {
     for (size_t offset = 0; offset < CHUNK; offset++) {
         size_t index = (head + WINDOW_SIZE - 1 - offset) % WINDOW_SIZE;
-        Level& bid_level = bids[index];
-        Level& ask_level = asks[index];
+        PooledLevel& bid_level = bids[index];
+        PooledLevel& ask_level = asks[index];
 
-        while (!bid_level.orders.empty()) {
-            migrate_order(bid_level, bid_level.orders.begin(), spillover_bids[base + static_cast<Price>(WINDOW_SIZE - 1 - offset)]);
+        Price out_price = base + static_cast<Price>(WINDOW_SIZE - 1 - offset);
+        Price in_price  = base - static_cast<Price>(1 + offset);
+        uint32_t idx = bid_level.head;
+
+        while (idx != NIL) {
+            uint32_t next = pool[idx].next;
+            migrate_order(bid_level, idx, spillover_bids[out_price]);
+            idx = next;
         }
         clear_occupied(Side::Buy, index);
-        while (!ask_level.orders.empty()) {
-            migrate_order(ask_level, ask_level.orders.begin(), spillover_asks[base + static_cast<Price>(WINDOW_SIZE - 1 - offset)]);
+
+        idx = ask_level.head;
+        while (idx != NIL) {
+            uint32_t next = pool[idx].next;
+            migrate_order(ask_level, idx, spillover_asks[out_price]);
+            idx = next;
         }
         clear_occupied(Side::Sell, index);
 
-        auto bid_it = spillover_bids.find(base - static_cast<Price>(1 + offset));
+        auto bid_it = spillover_bids.find(in_price);
         if (bid_it != spillover_bids.end()) {
-            Level& spill_bid = bid_it->second;
-            while (!spill_bid.orders.empty()) {
-                migrate_order(spill_bid, spill_bid.orders.begin(), bid_level);
+            idx = bid_it->second.head;
+            while (idx != NIL) {
+                uint32_t next = pool[idx].next;
+                migrate_order(bid_it->second, idx, bid_level);
+                idx = next;
             }
             spillover_bids.erase(bid_it);
             set_occupied(Side::Buy, index);
         }
 
-        auto ask_it = spillover_asks.find(base - static_cast<Price>(1 + offset));
+        auto ask_it = spillover_asks.find(in_price);
         if (ask_it != spillover_asks.end()) {
-            Level& spill_ask = ask_it->second;
-            while (!spill_ask.orders.empty()) {
-                migrate_order(spill_ask, spill_ask.orders.begin(), ask_level);
+            idx = ask_it->second.head;
+            while (idx != NIL) {
+                uint32_t next = pool[idx].next;
+                migrate_order(ask_it->second, idx, ask_level);
+                idx = next;
             }
             spillover_asks.erase(ask_it);
             set_occupied(Side::Sell, index);
@@ -229,13 +258,59 @@ void FlatOrderBook::slide_down() {
     slides_down++;
 }
 
-void FlatOrderBook::migrate_order(Level& from, std::list<Order>::iterator node, Level& to) {
-    Order order = *node;
-    to.orders.push_back(order);
-    to.total_volume += order.quantity;
-    from.total_volume -= order.quantity;
-    auto new_node = std::prev(to.orders.end());
-    from.orders.erase(node);
-    id_index[order.order_id].node = new_node;
+void FlatOrderBook::migrate_order(PooledLevel& from, uint32_t idx, PooledLevel& to) {
+    Quantity qty = pool[idx].quantity;
+    unlink(from, idx);
+    link_back(to, idx);
+    from.total_volume -= qty;
+    to.total_volume += qty;
     orders_migrated++;
+}
+
+uint32_t FlatOrderBook::alloc_node(OrderId id, Quantity qty) {
+    uint32_t idx;
+    if (free_head != NIL) {
+        idx = free_head;
+        free_head = pool[idx].next;
+    } else {
+        idx = static_cast<uint32_t>(pool.size());
+        pool.push_back(OrderNode{});
+    }
+    pool[idx].id = id;
+    pool[idx].quantity = qty;
+    pool[idx].next = NIL;
+    pool[idx].prev = NIL;
+    return idx;
+}
+
+void FlatOrderBook::free_node(uint32_t idx) {
+    pool[idx].next = free_head;
+    free_head = idx;
+}
+
+void FlatOrderBook::link_back(PooledLevel& level, uint32_t idx) {
+    pool[idx].next = NIL;
+    pool[idx].prev = level.tail;
+    if (level.tail != NIL) {
+        pool[level.tail].next = idx;
+    } else {
+        level.head = idx;
+    }
+    level.tail = idx;
+}
+
+void FlatOrderBook::unlink(PooledLevel& level, uint32_t idx) {
+    uint32_t p = pool[idx].prev;
+    uint32_t n = pool[idx].next;
+
+    if (p != NIL) {
+        pool[p].next = n;
+    } else {
+        level.head = n;
+    }
+    if (n != NIL) {
+        pool[n].prev = p;
+    } else {
+        level.tail = p;
+    }
 }
