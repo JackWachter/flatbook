@@ -158,14 +158,15 @@ TEST(FlatSlide, HeadWrapsCorrectly) {
 
 TEST(FlatSlide, BothSidesMigrateTogether) {
     FlatOrderBook book;
-    book.add(1, Side::Buy,  95, 10);
-    book.add(2, Side::Sell, 95, 20);
+    book.add(1, Side::Buy,  100, 10);
+    book.add(2, Side::Buy, 70, 20);
+    book.add(3, Side::Sell, 70, 20);
     book.slide_up();
     book.slide_up();
     book.slide_up();
     EXPECT_EQ(book.spillover_size(), 2);
-    EXPECT_EQ(book.cancel(1), 0);
     EXPECT_EQ(book.cancel(2), 0);
+    EXPECT_EQ(book.cancel(3), 0);
     EXPECT_EQ(book.spillover_size(), 0);
 }
 
@@ -190,10 +191,10 @@ TEST(FlatSlide, BaseMovesByChunk) {
 
 TEST(FlatSlide, TouchCorrectWithNonZeroHead) {
     FlatOrderBook book;
-    book.add(99, Side::Buy, 120, 1); 
+    book.add(99, Side::Buy, 100, 1); 
     Price start = book.current_base();
 
-    book.add(1, Side::Buy, 160, 50);
+    book.add(1, Side::Buy, 133, 50);
     EXPECT_EQ(book.current_base(), start + static_cast<Price>(CHUNK));
 
     book.add(2, Side::Buy, 110, 10);

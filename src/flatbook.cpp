@@ -75,11 +75,12 @@ Quote FlatOrderBook::best_ask() {
 }
 
 int FlatOrderBook::cancel(OrderId order_id) {
-    if(!id_index.count(order_id)) {
+    auto it = id_index.find(order_id);
+    if(it == id_index.end()) {
         return 1;
     }
 
-    Location location = id_index[order_id];
+    Location location = it->second;
     Level* level_ptr;
     size_t index= 0;
     if (in_window(location.price)) {
@@ -93,7 +94,7 @@ int FlatOrderBook::cancel(OrderId order_id) {
     Quantity volume = location.node->quantity;
     level.orders.erase(location.node);
     level.total_volume -= volume;
-    id_index.erase(order_id);
+    id_index.erase(it);
     if (level.orders.empty()) {
         if (!in_window(location.price)) {
             auto& book = (location.side == Side::Buy) ? spillover_bids : spillover_asks;
@@ -106,11 +107,12 @@ int FlatOrderBook::cancel(OrderId order_id) {
 }
 
 int FlatOrderBook::execute(OrderId order_id, Quantity quantity) {
-    if(!id_index.count(order_id)) {
+    auto it = id_index.find(order_id);
+    if(it == id_index.end()) {
         return 1;
     }
 
-    Location location = id_index[order_id];
+    Location location = it->second;
     Level* level_ptr;
     size_t index= 0;
     if (in_window(location.price)) {
@@ -129,7 +131,7 @@ int FlatOrderBook::execute(OrderId order_id, Quantity quantity) {
         return 0;
     } else if (volume == quantity) {
         level.total_volume -= volume;
-        id_index.erase(order_id);
+        id_index.erase(it);
         level.orders.erase(location.node);
         if (level.orders.empty()) {
             if (!in_window(location.price)) {
