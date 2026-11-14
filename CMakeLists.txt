@@ -55,5 +55,13 @@ add_executable(latency
 )
 target_include_directories(latency PRIVATE src)
 
+add_executable(replay_one
+    benchmarks/replay_one.cpp
+    src/orderbook.cpp
+    src/flatbook.cpp
+    src/events.cpp
+)
+target_include_directories(replay_one PRIVATE src)
+
 include(GoogleTest)
 gtest_discover_tests(tests)
